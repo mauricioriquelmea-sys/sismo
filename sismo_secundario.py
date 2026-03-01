@@ -44,43 +44,50 @@ st.caption("Análisis de Componentes No Estructurales | Ingeniería Civil Estruc
 st.sidebar.header("⚙️ Parámetros de Diseño")
 
 with st.sidebar.expander("📍 Ubicación y Edificio", expanded=True):
-    zona = st.selectbox("Zona Sísmica", [1, 2, 3], index=2)
-    cat_edif = st.selectbox("Categoría del Edificio", ["I o II", "III o IV"], index=0)
-    h_total = st.number_input("Altura total edificio (hn) [m]", value=15.0, min_value=1.0)
-    z_nivel = st.number_input("Altura de montaje (z) [m]", value=12.0, min_value=0.0)
+    zona = st.selectbox("Zona Sísmica", [1, 2, 3], index=2, help="Según NCh 433")
+    cat_edif = st.selectbox("Categoría de Ocupación del Edificio", ["I", "II", "III", "IV"], index=1, help="Según NCh 433")
+    h_total = st.number_input("Altura promedio de techo (h) [m]", value=15.0, min_value=1.0)
+    z_nivel = st.number_input("Altura de fijación (z) [m]", value=12.0, min_value=0.0)
 
 with st.sidebar.expander("🔩 Propiedades del Componente", expanded=True):
-    ap = st.number_input("Factor de amplificación (ap)", value=1.0, help="1.0 para rígidos, 2.5 para flexibles")
-    Rp = st.number_input("Factor de modificación (Rp)", value=2.5, min_value=1.0)
+    ap = st.number_input("Factor de amplificación (ap)", value=1.0, help="Varía entre 1,0 (rígidos) y 2,5 (flexibles)")
+    Rp = st.number_input("Factor de modificación (Rp)", value=2.5, min_value=1.0, help="Según Tablas 4 o 5 de NCh 3357")
     peso_comp = st.number_input("Peso del componente (Wp) [kgf]", value=100.0)
 
 # =================================================================
 # 3. MOTOR DE CÁLCULO (LÓGICA NCh 3357)
 # =================================================================
 
-# 1. Aceleración máxima Ao
+# 1. Aceleración máxima Ao y Factor Z [cite: 2244, 2247]
 ao_map = {1: 0.20, 2: 0.30, 3: 0.40}
+z_map = {1: 0.50, 2: 0.75, 3: 1.00}
 Ao = ao_map[zona]
+Z_factor = z_map[zona]
 
-# 2. Factor de Importancia Ip
-Ip = 1.5 if cat_edif == "III o IV" else 1.0
+# 2. Factor de Importancia del Componente Ip 
+# Ip = 1,5 para categorías III y IV. Ip = 1,0 para categorías I y II.
+Ip = 1.5 if cat_edif in ["III", "IV"] else 1.0
 
-# 3. Aceleración Horizontal ah
-# ah = 0.4 * Ao * Ip * (1 + 2 * (z/hn)) * (ap/Rp)
+# 3. Parámetro alpha_A * A (Asumiendo Suelo tipo B como base general si no se pide selector)
+# Ecuación Tabla 2: Suelo B = 1101 * Z 
+alpha_A_A_g = (1101 * Z_factor) / 980.665 # Convertido a unidades de g
+
+# 4. Aceleración Horizontal ah [cite: 2237]
+# ah = (0,4 * ap * alpha_A_A) / (Rp / Ip) * (1 + 2 * z/h)
 relacion_altura = z_nivel / h_total
-ah_base = 0.4 * Ao * Ip * (1 + 2 * relacion_altura) * (ap/Rp)
+ah_base = (0.4 * ap * alpha_A_A_g) / (Rp / Ip) * (1 + 2 * relacion_altura)
 
-# Límites normativos
-ah_min = 0.3 * Ao * Ip
-ah_max = 1.6 * Ao * Ip
+# Límites normativos 
+ah_min = 0.3 * alpha_A_A_g * Ip
+ah_max = 1.6 * alpha_A_A_g * Ip
 ah_final = max(ah_min, min(ah_base, ah_max))
 
-# 4. Fuerza Sísmica Horizontal Fp
+# 5. Fuerza Sísmica Horizontal Fp
 Fp_h = ah_final * peso_comp
 
-# 5. Aceleración Vertical av
-av_final = (2/3) * ah_final
-Fp_v = av_final * peso_comp
+# 6. Fuerza Sísmica Vertical Fpv 
+# Fpv = +/- (0,24 * alpha_A_A * Wp) / g * Amplificación(2.5)
+Fp_v = (0.24 * alpha_A_A_g * peso_comp) * 2.5
 
 # =================================================================
 # 4. GENERADOR DE PDF PROFESIONAL
@@ -94,30 +101,30 @@ def generar_pdf_sismo():
     pdf.ln(10)
 
     pdf.set_fill_color(240, 240, 240); pdf.set_font("Arial", 'B', 11)
-    pdf.cell(0, 10, " 1. PARAMETROS DE DISENO", ln=True, fill=True)
+    pdf.cell(0, 10, " 1. PARAMETROS DE DISENO SISMICO", ln=True, fill=True)
     pdf.set_font("Arial", '', 10)
     pdf.cell(0, 8, f" Zona Sismica: {zona} (Ao={Ao}g) | Categoria Edificio: {cat_edif} (Ip={Ip})", ln=True)
-    pdf.cell(0, 8, f" Altura de Montaje (z): {z_nivel} m | Altura Total (hn): {h_total} m", ln=True)
+    pdf.cell(0, 8, f" Altura Edificio (h): {h_total} m | Nivel de Montaje (z): {z_nivel} m", ln=True)
     pdf.ln(5)
 
-    pdf.cell(0, 10, " 2. RESULTADOS DE ACELERACION Y FUERZA", ln=True, fill=True)
+    pdf.cell(0, 10, " 2. RESULTADOS DE FUERZAS SOBRE COMPONENTE", ln=True, fill=True)
     pdf.set_font("Arial", 'B', 11)
-    pdf.cell(0, 10, f" Aceleracion Horizontal (ah): {ah_final:.3f} g", ln=True)
-    pdf.cell(0, 10, f" Fuerza Horizontal de Diseno (Fp): {Fp_h:.2f} kgf", ln=True)
+    pdf.cell(0, 10, f" Aceleracion Horizontal de Diseno (ah): {ah_final:.3f} g", ln=True)
+    pdf.cell(0, 10, f" Fuerza Horizontal (Fp): {Fp_h:.2f} kgf", ln=True)
     pdf.set_font("Arial", '', 10)
-    pdf.cell(0, 8, f" Fuerza Vertical (Fp_v): {Fp_v:.2f} kgf | av: {av_final:.3f} g", ln=True)
+    pdf.cell(0, 8, f" Fuerza Vertical Concurrente (Fpv): {Fp_v:.2f} kgf", ln=True)
     
     pdf.set_y(-25); pdf.set_font("Arial", 'I', 8)
-    pdf.cell(0, 10, "Reporte generado por Mauricio Riquelme - Proyectos Estructurales EIRL", align='C')
+    pdf.cell(0, 10, "Memoria generada bajo estandares NCh 3357:2015 - Mauricio Riquelme", align='C')
     return pdf.output()
 
-# Botón de Descarga Persistente en Sidebar
+# Botón de Descarga Persistente
 st.sidebar.markdown("---")
 try:
     pdf_bytes = generar_pdf_sismo()
     b64 = base64.b64encode(pdf_bytes).decode()
     st.sidebar.markdown(f"""
-        <a class="main-btn" href="data:application/pdf;base64,{b64}" download="Memoria_Sismo_Secundario.pdf">
+        <a class="main-btn" href="data:application/pdf;base64,{b64}" download="Memoria_Sismo_NCh3357.pdf">
             📥 DESCARGAR MEMORIA SISMICA
         </a>
     """, unsafe_allow_html=True)
@@ -130,22 +137,22 @@ except Exception as e:
 st.markdown(f"""
 <div class="classification-box">
     <strong>📋 Ficha Técnica Sísmica (NCh 3357):</strong><br>
-    Factor de Importancia (Ip): {Ip}<br>
+    Categoría Edificio: {cat_edif} | Factor de Importancia Ip: {Ip:.1f}<br>
     Aceleración Horizontal ah: <strong>{ah_final:.3f} g</strong><br>
-    Aceleración Vertical av: {av_final:.3f} g<br>
+    Fuerza Vertical Fpv: {Fp_v:.2f} kgf<br>
     <span style="font-size: 1.5em; color: #003366;"><strong>Fuerza Horizontal (Fp): {Fp_h:.2f} kgf</strong></span>
 </div>
 """, unsafe_allow_html=True)
 
-# Gráfico de Sensibilidad: ah vs Altura Relativa
-st.subheader("📈 Sensibilidad: Aceleración ah vs Altura de Montaje (z)")
-z_range = np.linspace(0, h_total, 50)
-ah_range = [max(ah_min, min(0.4 * Ao * Ip * (1 + 2 * (zi/h_total)) * (ap/Rp), ah_max)) for zi in z_range]
+# Gráfico de Sensibilidad: ah vs Altura Relativa (z/h)
+st.subheader("📈 Sensibilidad: Aceleración ah según Altura de Montaje")
+z_axis = np.linspace(0, h_total, 50)
+ah_sens = [max(ah_min, min((0.4 * ap * alpha_A_A_g) / (Rp / Ip) * (1 + 2 * (zi/h_total)), ah_max)) for zi in z_axis]
 
 fig, ax = plt.subplots(figsize=(10, 4))
-ax.plot(z_range, ah_range, color='#003366', lw=2.5, label='Aceleración Horizontal ah (g)')
-ax.axhline(ah_min, color='orange', ls='--', label='ah_min (0.3*Ao*Ip)')
-ax.axhline(ah_max, color='red', ls='--', label='ah_max (1.6*Ao*Ip)')
+ax.plot(z_axis, ah_sens, color='#003366', lw=2.5, label='Aceleración Horizontal ah (g)')
+ax.axhline(ah_min, color='orange', ls='--', label='ah_min')
+ax.axhline(ah_max, color='red', ls='--', label='ah_max')
 ax.scatter([z_nivel], [ah_final], color='black', s=100, zorder=5)
 ax.set_xlabel("Altura de Montaje z (m)"); ax.set_ylabel("Aceleración (g)")
 ax.grid(True, alpha=0.3); ax.legend(); st.pyplot(fig)
