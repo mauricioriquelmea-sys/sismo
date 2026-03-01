@@ -132,28 +132,31 @@ except Exception as e:
     st.sidebar.error(f"Error PDF: {e}")
 
 # =================================================================
-# 5. DESPLIEGUE DE RESULTADOS
+# 5. DESPLIEGUE DE RESULTADOS (ACTUALIZADO: NEGRILLAS E IDENTIFICACIÓN)
 # =================================================================
 st.markdown(f"""
 <div class="classification-box">
     <strong>📋 Ficha Técnica Sísmica (NCh 3357):</strong><br>
     Categoría Edificio: {cat_edif} | Factor de Importancia Ip: {Ip:.1f}<br>
     Aceleración Horizontal ah: <strong>{ah_final:.3f} g</strong><br>
-    Fuerza Vertical Fpv: {Fp_v:.2f} kgf<br>
-    <span style="font-size: 1.5em; color: #003366;"><strong>Fuerza Horizontal (Fp): {Fp_h:.2f} kgf</strong></span>
+    Aceleración Vertical av: <strong>{av_final:.3f} g</strong><br><br>
+    <span style="font-size: 1.4em; color: #003366;"><strong>Fuerza Horizontal (Fp): {Fp_h:.2f} kgf</strong></span><br>
+    <span style="font-size: 1.4em; color: #003366;"><strong>Fuerza Vertical (Fpv): {Fp_v:.2f} kgf</strong></span>
 </div>
 """, unsafe_allow_html=True)
 
-# Gráfico de Sensibilidad: ah vs Altura Relativa (z/h)
-st.subheader("📈 Sensibilidad: Aceleración ah según Altura de Montaje")
+# Actualización opcional del Gráfico para incluir la aceleración vertical
+st.subheader("📈 Sensibilidad: Aceleración ah y av según Altura")
 z_axis = np.linspace(0, h_total, 50)
+# Recalcular curvas para el gráfico
 ah_sens = [max(ah_min, min((0.4 * ap * alpha_A_A_g) / (Rp / Ip) * (1 + 2 * (zi/h_total)), ah_max)) for zi in z_axis]
+av_sens = [(2/3) * a for a in ah_sens]
 
-fig, ax = plt.subplots(figsize=(10, 4))
-ax.plot(z_axis, ah_sens, color='#003366', lw=2.5, label='Aceleración Horizontal ah (g)')
-ax.axhline(ah_min, color='orange', ls='--', label='ah_min')
-ax.axhline(ah_max, color='red', ls='--', label='ah_max')
-ax.scatter([z_nivel], [ah_final], color='black', s=100, zorder=5)
+fig, ax = plt.subplots(figsize=(10, 5))
+ax.plot(z_axis, ah_sens, color='#003366', lw=2.5, label='Aceleración Horiz. ah (g)')
+ax.plot(z_axis, av_sens, color='#d9534f', lw=2, ls='--', label='Aceleración Vert. av (g)')
+ax.scatter([z_nivel], [ah_final], color='black', s=80, zorder=5)
+ax.scatter([z_nivel], [av_final], color='red', s=80, zorder=5)
 ax.set_xlabel("Altura de Montaje z (m)"); ax.set_ylabel("Aceleración (g)")
 ax.grid(True, alpha=0.3); ax.legend(); st.pyplot(fig)
 
