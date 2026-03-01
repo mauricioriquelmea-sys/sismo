@@ -1,0 +1,154 @@
+# -*- coding: utf-8 -*-
+import streamlit as st
+import numpy as np
+import matplotlib.pyplot as plt
+import base64
+import os
+from fpdf import FPDF
+
+# =================================================================
+# 1. CONFIGURACIÓN CORPORATIVA Y ESTILO
+# =================================================================
+st.set_page_config(page_title="NCh 3357:2015 | Sismo Secundario", layout="wide")
+
+st.markdown("""
+    <style>
+    .main > div { padding-left: 2rem; padding-right: 2rem; max-width: 100%; }
+    .stMetric { background-color: #f8f9fa; padding: 15px; border-radius: 10px; border: 1px solid #dee2e6; }
+    .classification-box {
+        background-color: #f1f8ff; padding: 20px; border: 1px solid #c8e1ff;
+        border-radius: 5px; margin-bottom: 25px;
+    }
+    .main-btn {
+        display: flex; align-items: center; justify-content: center;
+        background-color: #003366; color: white !important; padding: 12px 10px;
+        text-decoration: none !important; border-radius: 8px; font-weight: bold;
+        width: 100%; border: none; font-size: 14px; transition: 0.3s;
+    }
+    .main-btn:hover { background-color: #004488; }
+    </style>
+    """, unsafe_allow_html=True)
+
+# Encabezado Corporativo
+if os.path.exists("Logo.png"):
+    with open("Logo.png", "rb") as f:
+        logo_b64 = base64.b64encode(f.read()).decode()
+    st.markdown(f'<div style="text-align: center;"><img src="data:image/png;base64,{logo_b64}" width="380"></div>', unsafe_allow_html=True)
+
+st.subheader("Cálculo de Fuerzas Sísmicas en Elementos Secundarios (NCh 3357:2015)")
+st.caption("Análisis de Componentes No Estructurales | Ingeniería Civil Estructural")
+
+# =================================================================
+# 2. SIDEBAR: PARÁMETROS DE DISEÑO SÍSMICO
+# =================================================================
+st.sidebar.header("⚙️ Parámetros de Diseño")
+
+with st.sidebar.expander("📍 Ubicación y Edificio", expanded=True):
+    zona = st.selectbox("Zona Sísmica", [1, 2, 3], index=2)
+    cat_edif = st.selectbox("Categoría del Edificio", ["I o II", "III o IV"], index=0)
+    h_total = st.number_input("Altura total edificio (hn) [m]", value=15.0, min_value=1.0)
+    z_nivel = st.number_input("Altura de montaje (z) [m]", value=12.0, min_value=0.0)
+
+with st.sidebar.expander("🔩 Propiedades del Componente", expanded=True):
+    ap = st.number_input("Factor de amplificación (ap)", value=1.0, help="1.0 para rígidos, 2.5 para flexibles")
+    Rp = st.number_input("Factor de modificación (Rp)", value=2.5, min_value=1.0)
+    peso_comp = st.number_input("Peso del componente (Wp) [kgf]", value=100.0)
+
+# =================================================================
+# 3. MOTOR DE CÁLCULO (LÓGICA NCh 3357)
+# =================================================================
+
+# 1. Aceleración máxima Ao
+ao_map = {1: 0.20, 2: 0.30, 3: 0.40}
+Ao = ao_map[zona]
+
+# 2. Factor de Importancia Ip
+Ip = 1.5 if cat_edif == "III o IV" else 1.0
+
+# 3. Aceleración Horizontal ah
+# ah = 0.4 * Ao * Ip * (1 + 2 * (z/hn)) * (ap/Rp)
+relacion_altura = z_nivel / h_total
+ah_base = 0.4 * Ao * Ip * (1 + 2 * relacion_altura) * (ap/Rp)
+
+# Límites normativos
+ah_min = 0.3 * Ao * Ip
+ah_max = 1.6 * Ao * Ip
+ah_final = max(ah_min, min(ah_base, ah_max))
+
+# 4. Fuerza Sísmica Horizontal Fp
+Fp_h = ah_final * peso_comp
+
+# 5. Aceleración Vertical av
+av_final = (2/3) * ah_final
+Fp_v = av_final * peso_comp
+
+# =================================================================
+# 4. GENERADOR DE PDF PROFESIONAL
+# =================================================================
+def generar_pdf_sismo():
+    pdf = FPDF()
+    pdf.add_page()
+    if os.path.exists("Logo.png"): pdf.image("Logo.png", x=10, y=8, w=33)
+    pdf.set_font("Arial", 'B', 16); pdf.cell(0, 10, "Memoria: Sismo Secundario NCh 3357", ln=True, align='C')
+    pdf.set_font("Arial", 'I', 10); pdf.cell(0, 7, "Proyectos Estructurales | Structural Lab", ln=True, align='C')
+    pdf.ln(10)
+
+    pdf.set_fill_color(240, 240, 240); pdf.set_font("Arial", 'B', 11)
+    pdf.cell(0, 10, " 1. PARAMETROS DE DISENO", ln=True, fill=True)
+    pdf.set_font("Arial", '', 10)
+    pdf.cell(0, 8, f" Zona Sismica: {zona} (Ao={Ao}g) | Categoria Edificio: {cat_edif} (Ip={Ip})", ln=True)
+    pdf.cell(0, 8, f" Altura de Montaje (z): {z_nivel} m | Altura Total (hn): {h_total} m", ln=True)
+    pdf.ln(5)
+
+    pdf.cell(0, 10, " 2. RESULTADOS DE ACELERACION Y FUERZA", ln=True, fill=True)
+    pdf.set_font("Arial", 'B', 11)
+    pdf.cell(0, 10, f" Aceleracion Horizontal (ah): {ah_final:.3f} g", ln=True)
+    pdf.cell(0, 10, f" Fuerza Horizontal de Diseno (Fp): {Fp_h:.2f} kgf", ln=True)
+    pdf.set_font("Arial", '', 10)
+    pdf.cell(0, 8, f" Fuerza Vertical (Fp_v): {Fp_v:.2f} kgf | av: {av_final:.3f} g", ln=True)
+    
+    pdf.set_y(-25); pdf.set_font("Arial", 'I', 8)
+    pdf.cell(0, 10, "Reporte generado por Mauricio Riquelme - Proyectos Estructurales EIRL", align='C')
+    return pdf.output()
+
+# Botón de Descarga Persistente en Sidebar
+st.sidebar.markdown("---")
+try:
+    pdf_bytes = generar_pdf_sismo()
+    b64 = base64.b64encode(pdf_bytes).decode()
+    st.sidebar.markdown(f"""
+        <a class="main-btn" href="data:application/pdf;base64,{b64}" download="Memoria_Sismo_Secundario.pdf">
+            📥 DESCARGAR MEMORIA SISMICA
+        </a>
+    """, unsafe_allow_html=True)
+except Exception as e:
+    st.sidebar.error(f"Error PDF: {e}")
+
+# =================================================================
+# 5. DESPLIEGUE DE RESULTADOS
+# =================================================================
+st.markdown(f"""
+<div class="classification-box">
+    <strong>📋 Ficha Técnica Sísmica (NCh 3357):</strong><br>
+    Factor de Importancia (Ip): {Ip}<br>
+    Aceleración Horizontal ah: <strong>{ah_final:.3f} g</strong><br>
+    Aceleración Vertical av: {av_final:.3f} g<br>
+    <span style="font-size: 1.5em; color: #003366;"><strong>Fuerza Horizontal (Fp): {Fp_h:.2f} kgf</strong></span>
+</div>
+""", unsafe_allow_html=True)
+
+# Gráfico de Sensibilidad: ah vs Altura Relativa
+st.subheader("📈 Sensibilidad: Aceleración ah vs Altura de Montaje (z)")
+z_range = np.linspace(0, h_total, 50)
+ah_range = [max(ah_min, min(0.4 * Ao * Ip * (1 + 2 * (zi/h_total)) * (ap/Rp), ah_max)) for zi in z_range]
+
+fig, ax = plt.subplots(figsize=(10, 4))
+ax.plot(z_range, ah_range, color='#003366', lw=2.5, label='Aceleración Horizontal ah (g)')
+ax.axhline(ah_min, color='orange', ls='--', label='ah_min (0.3*Ao*Ip)')
+ax.axhline(ah_max, color='red', ls='--', label='ah_max (1.6*Ao*Ip)')
+ax.scatter([z_nivel], [ah_final], color='black', s=100, zorder=5)
+ax.set_xlabel("Altura de Montaje z (m)"); ax.set_ylabel("Aceleración (g)")
+ax.grid(True, alpha=0.3); ax.legend(); st.pyplot(fig)
+
+st.markdown("---")
+st.markdown("<div style='text-align: center; color: #666;'>Mauricio Riquelme | Proyectos Estructurales <br> <em>'Programming is understanding'</em></div>", unsafe_allow_html=True)
