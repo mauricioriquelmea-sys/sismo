@@ -44,8 +44,7 @@ st.caption("Análisis de Componentes No Estructurales | Ingeniería Civil Estruc
 st.sidebar.header("⚙️ Parámetros de Diseño")
 
 with st.sidebar.expander("📍 Ubicación y Edificio", expanded=True):
-    zona = st.selectbox("Zona Sísmica", [1, 2, 3], index=2, help="Según NCh 433")
-    # Categorías individuales según solicitado
+    zona = st.selectbox("Zona Sísmica", [1, 2, 3], index=2)
     cat_edif = st.selectbox("Categoría de Ocupación del Edificio", ["I", "II", "III", "IV"], index=1)
     h_total = st.number_input("Altura promedio de techo (h) [m]", value=15.0, min_value=1.0)
     z_nivel = st.number_input("Altura de fijación (z) [m]", value=12.0, min_value=0.0)
@@ -63,25 +62,25 @@ with st.sidebar.expander("🔩 Propiedades del Componente", expanded=True):
 z_map = {1: 0.50, 2: 0.75, 3: 1.00}
 Z_factor = z_map[zona]
 
-# 2. Factor de Importancia Ip (Individualizado) [cite: 2160, 2163]
+# 2. Factor de Importancia Ip (Individualizado) [cite: 2134, 2151, 2163]
 Ip = 1.5 if cat_edif in ["III", "IV"] else 1.0
 
-# 3. Pseudo-aceleración (Asumiendo Suelo B base) [cite: 2244]
-# alpha_A * A = 1101 * Z (cm/s2)
+# 3. Pseudo-aceleración (Suelo B base) [cite: 2244]
 alpha_A_A_g = (1101 * Z_factor) / 980.665 
 
 # 4. Aceleración Horizontal ah 
 rel_h = z_nivel / h_total
-ah_base = (0.4 * ap * alpha_A_A_g) / (Rp / Ip) * (1 + 2 * rel_h)
-
-# Límites normativos
+ah_calc = (0.4 * ap * alpha_A_A_g) / (Rp / Ip) * (1 + 2 * rel_h)
 ah_min = 0.3 * alpha_A_A_g * Ip
 ah_max = 1.6 * alpha_A_A_g * Ip
-ah_final = max(ah_min, min(ah_base, ah_max))
+ah_final = max(ah_min, min(ah_calc, ah_max))
 
-# 5. Fuerzas de Diseño
+# 5. Aceleración Vertical av (Amplificación por 2.5) 
+av_base = 0.24 * alpha_A_A_g * Ip
+av_final = av_base * 2.5 
+
+# 6. Fuerzas de Diseño
 Fp_h = ah_final * peso_comp
-av_final = (2/3) * ah_final # Relación vertical típica
 Fp_v = av_final * peso_comp
 
 # =================================================================
@@ -106,13 +105,14 @@ def generar_pdf_sismo():
     pdf.set_font("Arial", 'B', 11)
     pdf.cell(0, 10, f" Aceleracion Horizontal (ah): {ah_final:.3f} g", ln=True)
     pdf.cell(0, 10, f" Fuerza Horizontal (Fp): {Fp_h:.2f} kgf", ln=True)
-    pdf.cell(0, 10, f" Fuerza Vertical (Fpv): {Fp_v:.2f} kgf (av={av_final:.3f} g)", ln=True)
+    pdf.cell(0, 10, f" Aceleracion Vertical (av): {av_final:.3f} g", ln=True)
+    pdf.cell(0, 10, f" Fuerza Vertical (Fpv): {Fp_v:.2f} kgf", ln=True)
     
     pdf.set_y(-25); pdf.set_font("Arial", 'I', 8)
     pdf.cell(0, 10, "Reporte generado bajo NCh 3357:2015 - AccuraWall Port", align='C')
     return pdf.output()
 
-# Botón de Descarga Persistente
+# Botón de Descarga en Sidebar
 st.sidebar.markdown("---")
 try:
     pdf_bytes = generar_pdf_sismo()
@@ -139,21 +139,37 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# Gráfico de Sensibilidad Comparativo
-st.subheader("📈 Sensibilidad: Aceleración ah y av según Altura")
+# =================================================================
+# 6. GRÁFICOS DE SENSIBILIDAD INDEPENDIENTES
+# =================================================================
 z_axis = np.linspace(0, h_total, 50)
-ah_sens = [max(ah_min, min((0.4 * ap * alpha_A_A_g) / (Rp / Ip) * (1 + 2 * (zi/h_total)), ah_max)) for zi in z_axis]
-av_sens = [(2/3) * a for a in ah_sens]
+col_g1, col_g2 = st.columns(2)
 
-fig, ax = plt.subplots(figsize=(10, 5))
-ax.plot(z_axis, ah_sens, color='#003366', lw=2.5, label='Aceleración Horiz. ah (g)')
-ax.plot(z_axis, av_sens, color='#d9534f', lw=2, ls='--', label='Aceleración Vert. av (g)')
-ax.scatter([z_nivel], [ah_final], color='black', s=80, zorder=5)
-ax.scatter([z_nivel], [av_final], color='red', s=80, zorder=5)
-ax.set_xlabel("Altura de Montaje z (m)"); ax.set_ylabel("Aceleración (g)")
-ax.grid(True, alpha=0.3); ax.legend(); st.pyplot(fig)
+with col_g1:
+    st.subheader("📈 Sensibilidad Horizontal ah")
+    # Curva calculada sin aplicar límites para visualización
+    ah_curva = [(0.4 * ap * alpha_A_A_g) / (Rp / Ip) * (1 + 2 * (zi/h_total)) for zi in z_axis]
+    
+    fig_h, ax_h = plt.subplots(figsize=(8, 6))
+    ax_h.plot(z_axis, ah_curva, color='#003366', lw=2.5, label='ah (Fórmula)')
+    ax_h.axhline(ah_min, color='orange', ls='--', label=f'ah_min ({ah_min:.2f}g)')
+    ax_h.axhline(ah_max, color='red', ls='--', label=f'ah_max ({ah_max:.2f}g)')
+    ax_h.scatter([z_nivel], [ah_final], color='black', s=100, zorder=5, label='Punto Diseño')
+    ax_h.set_xlabel("Altura z (m)"); ax_h.set_ylabel("Aceleración Horizontal (g)")
+    ax_h.grid(True, alpha=0.3); ax_h.legend(loc='upper left', fontsize='small')
+    st.pyplot(fig_h)
 
-
+with col_g2:
+    st.subheader("📈 Sensibilidad Vertical av")
+    # La aceleración vertical es constante respecto a z según Ecuación 2254 si no se hace análisis dinámico
+    fig_v, ax_v = plt.subplots(figsize=(8, 6))
+    ax_v.axhline(av_final, color='#d9534f', lw=2.5, label='av (Diseño)')
+    ax_v.axhline(av_base, color='gray', ls=':', label='av_base (sin amp 2.5)')
+    ax_h.scatter([z_nivel], [av_final], color='red', s=100, zorder=5) # Referencia altura montaje
+    ax_v.set_xlabel("Altura z (m)"); ax_v.set_ylabel("Aceleración Vertical (g)")
+    ax_v.set_ylim(0, av_final * 1.5)
+    ax_v.grid(True, alpha=0.3); ax_v.legend(loc='upper left', fontsize='small')
+    st.pyplot(fig_v)
 
 st.markdown("---")
 st.markdown("<div style='text-align: center; color: #666;'>Mauricio Riquelme | Proyectos Estructurales <br> <em>'Programming is understanding'</em></div>", unsafe_allow_html=True)
